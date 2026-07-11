@@ -45,7 +45,7 @@
 
 ## 관측 2층
 - **(A) 앱 메트릭** = 직접 구현 (QPS·히트율·p99·슬로우로그). CloudWatch 커스텀 메트릭 개념.
-- **(B) JVM 관측** = JDK 공짜 도구. 내가 심은 동시성 버그·누수를 이 도구로 진단 = 실전. (`../private/learning/topics/java/memory.md` 참고)
+- **(B) JVM 관측** = JDK 공짜 도구. 내가 심은 동시성 버그·누수를 이 도구로 진단 = 실전. (실행 옵션·메모리 영역: [`docs/jvm-options.md`](docs/jvm-options.md))
 
 ---
 

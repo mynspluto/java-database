@@ -11,7 +11,7 @@
 - **JDK 버전**: LTS(21) 권장 — virtual thread(Loom)·`java.lang.foreign`(Panama) 등 딥다이브 소재가 최신에 있음.
 - **패키지 구조 감**: `store`(엔진) / `wal`(영속화) / `net`(프로토콜·서버) / `concurrent`(락·풀) / `index` / `metrics`. 구조도 직접 정하는 게 학습.
 
-**알아야 할 것**: `javac`/`java` 동작·classpath → **[`docs/toolchain.md`](toolchain.md)**, `-Xms/-Xmx/-Xss` 의 의미(→ `../private/learning/topics/java/memory.md`), `public static void main` 진입점, JAR 패키징.
+**알아야 할 것**: `javac`/`java` 동작·classpath → **[`docs/toolchain.md`](toolchain.md)**, `-Xms/-Xmx/-Xss` 등 JVM 실행 옵션 → **[`docs/jvm-options.md`](jvm-options.md)**, `public static void main` 진입점, JAR 패키징.
 
 ---
 
@@ -22,7 +22,7 @@
 **딥다이브 포인트**
 - **해시맵 내부**: 버킷·체이닝·로드팩터·리사이징(amortized O(1)). 직접 짠 것 vs `java.util.HashMap`(트리화 threshold 8, `hash()` 스프레딩) 비교.
 - **`equals`/`hashCode` 계약** — 안 지키면 조회 실패. 불변 key 의 중요성.
-- **힙에 뭐가 쌓이나**: 모든 `String`·`Node` 객체가 힙. `new` 마다 할당. (메모리 맵: memory.md §힙)
+- **힙에 뭐가 쌓이나**: 모든 `String`·`Node` 객체가 힙. `new` 마다 할당. (메모리 맵: [jvm-options.md](jvm-options.md) §메모리 맵)
 - **String 내부**: `char[]`→(Java 9+) `byte[]` + coder, String pool, `intern()`. key 를 pool 에 넣을지 trade-off.
 
 **JVM 관측 실습**: `jps` 로 PID → `jmap -histo <pid>` 로 어떤 객체가 몇 개 쌓였는지. 대량 put 후 힙 증가를 `jstat -gc <pid> 1000` 로 관찰.
@@ -37,7 +37,7 @@
 
 **딥다이브 포인트**
 - **파일 I/O**: `FileOutputStream` vs `FileChannel`. `flush()` ≠ 디스크 도달 — **`fsync`(`FileDescriptor.sync()` / `FileChannel.force(true)`)** 안 하면 OS page cache 에만 있고 크래시 시 유실. 이게 durability 의 핵심.
-- **버퍼링**: `BufferedOutputStream`, write syscall 횟수 vs 지연. 힙 버퍼 vs `ByteBuffer.allocateDirect()`(off-heap, memory.md §다이렉트).
+- **버퍼링**: `BufferedOutputStream`, write syscall 횟수 vs 지연. 힙 버퍼 vs `ByteBuffer.allocateDirect()`(off-heap, [jvm-options.md](jvm-options.md) §다이렉트 메모리).
 - **직렬화 포맷**: 길이-프리픽스 바이너리 직접 설계. `DataOutputStream`(빅엔디안) / `ByteBuffer`. Java `Serializable` 은 **왜 피하나**(버전·보안·크기).
 - **크래시 복구**: 반쯤 쓰인 마지막 레코드 감지(체크섬/길이검증). WAL replay 멱등성.
 - **파일락**: `FileChannel.lock()` 으로 이중 기동 방지.
@@ -56,7 +56,7 @@
 
 **딥다이브 포인트**
 - **TCP 기초**: 3-way handshake, 스트림(경계 없음!) → **프레이밍 직접**(길이 프리픽스 or 구분자). "한 번 read = 한 메시지" 착각이 최대 함정.
-- **블로킹 I/O 모델**: `accept()`/`read()` 가 블록. `InputStream`/`OutputStream` ↔ 커널 소켓 버퍼(memory.md §소켓버퍼).
+- **블로킹 I/O 모델**: `accept()`/`read()` 가 블록. `InputStream`/`OutputStream` ↔ 커널 소켓 버퍼([jvm-options.md](jvm-options.md) §메모리 맵 — OS 커널 영역).
 - **`read()` 반환값**: -1(EOF), 0, n — 부분 읽기 루프 필수. `readFully` 를 왜 직접 짜야 하나.
 - **Nagle/TCP_NODELAY**, `SO_KEEPALIVE`, `SO_REUSEADDR` — `setTcpNoDelay` 등 소켓 옵션의 의미.
 - **바이트 ↔ 문자**: 인코딩(UTF-8) 명시 안 하면 플랫폼 의존 버그.
@@ -90,7 +90,7 @@
 **딥다이브 포인트**
 - **`Selector`/`SelectionKey`**(OP_ACCEPT/READ/WRITE), 논블로킹 `read()` 반환 0 처리, 부분 write 시 OP_WRITE 등록.
 - **`ByteBuffer` 정복**: position/limit/capacity, `flip()`/`compact()`/`clear()` — 최대 실수 지점.
-- **다이렉트 버퍼 + zero-copy**(`FileChannel.transferTo`), off-heap 관리(memory.md).
+- **다이렉트 버퍼 + zero-copy**(`FileChannel.transferTo`), off-heap 관리([jvm-options.md](jvm-options.md)).
 - epoll/kqueue 를 JVM 이 어떻게 감싸나(리액터 패턴). Netty 가 감춘 것.
 - **왜 단일스레드로 수만 연결**(Redis/Node 원리) — 4a 스레드폭발 겪은 뒤 체득.
 
@@ -110,7 +110,7 @@
 - **슬로우로그**: 임계 초과 명령 링버퍼 저장.
 - **(A) 앱 메트릭** = 직접(CloudWatch 커스텀 개념) / **(B) JVM 관측** = JDK 공짜.
 
-**JVM 관측 도구 정복** (`../private/learning/topics/java/memory.md` §모니터링)
+**JVM 관측 도구 정복** (실행 옵션은 [jvm-options.md](jvm-options.md) §진단·관측 옵션)
 - `jps` PID · `jstat -gc` GC/힙 추이 · `jstack` 스레드/데드락 · `jmap -histo`/`-dump` 힙·누수(이펙티브자바 item7) · `jcmd`(만능: NMT·JFR 제어) · `jconsole`/VisualVM GUI · **JFR**(Flight Recorder — 저오버헤드 프로파일: 할당·락·IO) → JMC 로 분석.
 - 실습: 레이어 2~4 에서 **내가 심은 누수/데드락/할당폭증**을 이 도구로 진단 = 실전 디버깅.
 
