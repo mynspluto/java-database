@@ -1,0 +1,31 @@
+# Java
+*.class
+*.jar
+*.war
+target/
+build/
+out/
+bin/
+
+# JVM 진단 산출물 (jmap/JFR 등)
+*.hprof
+*.jfr
+hs_err_pid*.log
+replay_pid*.log
+
+# WAL / 스냅샷 / 데이터 (런타임 산출물)
+data/
+*.wal
+*.snapshot
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
