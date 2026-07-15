@@ -45,6 +45,7 @@
 | `-XX:ReservedCodeCacheSize=<size>` | **Code Cache**(JIT 이 만든 기계어) | JIT 딥다이브 시. `mixed mode` 의 기계어가 여기 캐싱 |
 
 > 메모리 영역 5종(힙/스택/메타스페이스/다이렉트/코드캐시)의 전체 지도는 이 문서 하단 "메모리 맵" 참고.
+> **스택 vs 힙의 원리**(왜 나눴나·프레임·SOE/OOM/OOM Killer·할당 시 syscall·CPU/OS/JVM 층위)는 → [`memory-model.md`](memory-model.md).
 
 ## 4. GC 선택 — `-XX:+Use___GC` (레이어 5~6)
 

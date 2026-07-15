@@ -11,7 +11,7 @@
 - **JDK 버전**: LTS(21) 권장 — virtual thread(Loom)·`java.lang.foreign`(Panama) 등 딥다이브 소재가 최신에 있음.
 - **패키지 구조 감**: `store`(엔진) / `wal`(영속화) / `net`(프로토콜·서버) / `concurrent`(락·풀) / `index` / `metrics`. 구조도 직접 정하는 게 학습.
 
-**알아야 할 것**: `javac`/`java` 동작·classpath → **[`docs/toolchain.md`](toolchain.md)**, `-Xms/-Xmx/-Xss` 등 JVM 실행 옵션 → **[`docs/jvm-options.md`](jvm-options.md)**, `public static void main` 진입점, JAR 패키징.
+**알아야 할 것**: `javac`/`java` 동작·classpath → **[`docs/toolchain.md`](toolchain.md)**, `-Xms/-Xmx/-Xss` 등 JVM 실행 옵션 → **[`docs/jvm-options.md`](jvm-options.md)**, 스택·힙 원리(수명·프레임·SOE/OOM·할당 syscall·CPU/OS/JVM 층위) → **[`docs/memory-model.md`](memory-model.md)**, `public static void main` 진입점, JAR 패키징.
 
 ---
 
