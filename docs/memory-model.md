@@ -218,7 +218,7 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 
 ---
 
-## 9. OS ↔ JVM 메모리 경계 (심화: VMA · brk/mmap/malloc · 매핑)
+## 9. OS ↔ JVM 메모리 경계 (VMA · brk/mmap/malloc · maps 읽기 · RSS · 관측)
 
 §6·§8을 더 파고든 내용. "Java 힙은 OS의 무슨 영역인가", "누가 힙/스택을 나누나"의 정밀한 답.
 
@@ -346,27 +346,7 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 → **라벨은 딱 2줄뿐이고 익명이 메모리의 주력.** Java 힙은 그 익명 중 하나 — **커널 라벨상 `[heap]` 아님 / 기능상 힙 맞음**(GC가 힙처럼 쓰니까). `[heap]` 과는 주소도 멀고 만든 syscall도 다른 **별개 영역**이다.
 
 > **주의: maps 는 "도면"이지 "사용량"이 아니다.** 어디에 무엇이 매핑됐는지만 있고 **실제 물리 점유는 없다.** 크기조차 주소를 빼서 계산해야 하고 그마저 예약분이다. `-Xmx16g` 면 maps엔 16GB가 잡히지만 시작 직후 실사용은 수백 MB — **reserve ≠ 물리 배정**(§6, demand paging).
->
-> **먼저 약어 3개** (이 문서·PLAN 전반에서 쓰임):
->
-> | 약어 | 풀이 | 뜻 | 성격 |
-> |---|---|---|---|
-> | **VSZ** | Virtual Size | **주소만 잡아둔** 총량 | 허풍 가능. RAM 안 먹음 |
-> | **RSS** | **Resident Set Size** | **실제 물리 RAM에 올라온** 양 | **죽고 사는 기준** |
-> | **PSS** | Proportional Set Size | 공유 페이지를 쓰는 프로세스 수로 **나눈 몫** | 진짜 자기 몫 |
->
-> - **RSS 가 중요한 이유: 커널이 이걸로 판단한다.** OOM Killer 의 `oom_score`·cgroup/컨테이너 한도 전부 RSS 기준 → `-Xmx`(JVM이 재는 힙)와 RSS(커널이 재는 전체)의 간극이 배포 사고의 단골(§9.6).
-> - **함정 1**: 공유 라이브러리 페이지가 **프로세스마다 통째로** RSS에 잡힘 → 전 프로세스 RSS 합 > 실제 RAM. 공정한 몫은 **PSS**.
-> - **함정 2**: 스왑으로 밀려나면 **RSS 에서 빠진다** → RSS 감소가 개선이 아닐 수 있음. `Swap:` 을 같이 볼 것. (컨테이너/Fargate는 스왑 없음 → 완충 없이 즉사)
->
-> | 알고 싶은 것 | 볼 것 |
-> |---|---|
-> | 배치(어디에 뭐가) | `maps` |
-> | **영역별 실사용** | **`smaps`** (`Size`·`Rss`·`Pss`·`Swap`) |
-> | 프로세스 총계 | `status`(`VmRSS`·`VmSize`), `top` 의 `RES` 열 |
-> | 시스템 전체 | `/proc/meminfo`, `free -h` (maps는 **프로세스 하나짜리**) |
->
-> `smaps` 의 **`Size` vs `Rss`** 가 곧 NMT의 **reserved vs committed** — 같은 사실을 커널 쪽과 JVM 쪽에서 본 것.
+> **실사용을 보려면 `smaps`** (영역마다 `Rss:`·`Pss:`·`Swap:` 이 붙는다). 용어와 함정은 **§9.6**.
 
 ### 9.5 좌우 대조 — 같은 메모리, 커널의 눈 vs JVM의 눈
 
@@ -374,22 +354,43 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 > JVM은 그 부지에 선반을 짜고 재고를 관리하는 **창고 주인**. 대장엔 "곡물창고"라고 안 적힌다.
 > → **부지 면적은 대장(커널)에, 재고 목록은 주인(JVM)에게** 물어야 한다.
 
-| 커널이 보는 것 (`maps`) | 관계 | JVM이 보는 것 (`jcmd`·`jmap`) | 상한 옵션 |
-|---|---|---|---|
-| `rw-p` `[stack]` | **같은 것** | 메인 스레드 스택 | `-Xss` |
-| `rw-p` (이름없음) | **같은 것** | 스레드 스택 × N | `-Xss` × N |
-| `rw-p` (이름없음) | 커널은 **빈 메모리**로만 앎 | **★ Java 힙** (GC 관리) | `-Xmx` |
-| `rw-p` (이름없음) | 〃 | 메타스페이스 | `-XX:MaxMetaspaceSize` |
-| `rw-p` (이름없음) | 〃 | 코드캐시 (JIT 기계어) | `-XX:ReservedCodeCacheSize` |
-| `rw-p` (이름없음) | 〃 | direct ByteBuffer | `-XX:MaxDirectMemorySize` |
-| `rw-p` `[heap]` | **JVM 관심 밖** | JVM 자신의 C++/JNI malloc | (없음) |
-| `r-xp` `/lib/*.so`, `java` | **JVM 관심 밖** | JVM 실행코드 자체 | (없음) |
+두 층의 관계는 **딱 3가지**뿐이다. 그룹별로 보면 한눈에 들어온다.
 
-**읽을 것 3가지**:
+**그룹 1 — "같은 것" (커널이 만든 걸 JVM이 그대로 씀)**
 
-1. **"같은 것"은 스택 두 줄뿐.** 커널이 만든 스택에 HotSpot 프레임이 직접 얹힌다(플랫폼 스레드 1:1) → `jstack` 이 진짜 OS 스택을 읽는 것이고, `-Xss` 가 Java 재귀 깊이를 정한다.
-2. **나머지는 커널 눈엔 전부 똑같은 익명 영역.** Java 힙도 코드캐시도 구분이 없다. 이름·상한·관리방식은 **JVM이 혼자 붙인 것.**
-3. **그래서 튜닝 다이얼이 오른쪽 열에만 있다.** 커널엔 "Java 힙 크기"라는 개념 자체가 없어 조절할 수단도 없다.
+| 커널이 보는 것 | JVM이 부르는 이름 | 상한 |
+|---|---|---|
+| `rw-p` `[stack]` | 메인 스레드 스택 | `-Xss` |
+| `rw-p` (이름없음) | 스레드 스택 × N | `-Xss` × N |
+
+→ **여기가 유일하게 1:1.** HotSpot 프레임이 네이티브 스택에 직접 얹히므로(플랫폼 스레드) `jstack` 이 진짜 OS 스택을 읽고, `-Xss` 가 Java 재귀 깊이를 정한다.
+
+**그룹 2 — "커널은 빈 메모리로만 앎" (이름·규율은 JVM이 부여)**
+
+| 커널이 보는 것 | JVM이 부르는 이름 | 상한 |
+|---|---|---|
+| `rw-p` (이름없음) | **★ Java 힙** (GC 관리) | `-Xmx` |
+| `rw-p` (이름없음) | 메타스페이스 | `-XX:MaxMetaspaceSize` |
+| `rw-p` (이름없음) | 코드캐시 (JIT 기계어) | `-XX:ReservedCodeCacheSize` |
+| `rw-p` (이름없음) **또는 `[heap]`** | direct ByteBuffer (아래 주의) | `-XX:MaxDirectMemorySize` |
+
+→ **왼쪽 열이 전부 똑같다는 게 요점.** 커널 눈엔 Java 힙도 코드캐시도 구분 없는 익명 영역이고, **이름·상한·관리방식은 JVM이 혼자 붙인 것.** 그래서 튜닝 다이얼이 오른쪽에만 있다 — 커널엔 "Java 힙 크기"라는 개념 자체가 없어 조절할 수단도 없다.
+
+**그룹 3 — "JVM 관심 밖"**
+
+| 커널이 보는 것 | 정체 |
+|---|---|
+| `rw-p` `[heap]` | JVM 자신의 C++/JNI `malloc` |
+| `r-xp` `/lib/*.so`, `/usr/bin/java` | 실행코드·공유 라이브러리 |
+
+> **주의 — direct buffer 는 예외적으로 `malloc` 경로다.** `ByteBuffer.allocateDirect()` → `Unsafe.allocateMemory` → **`os::malloc`**. 즉 §9.2의 분기를 그대로 타서 **작으면 `[heap]`(brk), 128KB↑면 익명 mmap** 에 놓인다. "JVM은 malloc을 우회한다"(§9.2)는 **Java 힙에만** 해당하는 말이다.
+>
+> **이름이 비슷한 둘을 구별할 것** (레이어 2에서 WAL 을 어느 쪽으로 쓸지 고를 때 직결):
+>
+> | | 뒷배 | maps 에서 | 반납 |
+> |---|---|---|---|
+> | **`DirectByteBuffer`** (`allocateDirect`) | **없음**(익명, malloc) | `rw-p` | `Cleaner` — 안 풀면 누수 |
+> | **`MappedByteBuffer`** (`FileChannel.map`) | **파일** | `rw-s` / `r--s` | unmap. 파일 쓰기 = 메모리 쓰기 → `fsync` 타이밍 문제 |
 
 #### 스택 vs Java 힙 — 누가 돌봐주나
 
@@ -413,9 +414,25 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 | 가상 스레드(Loom) | 스택(프레임) | **Java 힙** (stack chunk 객체) |
 | 스칼라 치환(JIT 탈출분석) | 힙 객체(`new`) | **OS 스택**/레지스터 |
 
-### 9.6 실전 귀결 — RSS ≠ Java 힙, 그리고 도구 선택
+### 9.6 실전 귀결 — RSS ≠ Java 힙
 
-`-Xmx2g` 를 줬는데 `top` 에 3GB로 나온다. **정상이다.** `-Xmx` 는 Java 힙 **하나만** 제한하는데, 프로세스가 먹는 건 §9.5 표의 **모든 행**이기 때문:
+#### 용어 먼저 — VSZ / RSS / PSS
+
+§9.5의 좌우 차이가 숫자로 드러나는 게 이 셋이다:
+
+| 약어 | 풀이 | 뜻 | 성격 |
+|---|---|---|---|
+| **VSZ** | Virtual Size | **주소만 잡아둔** 총량 | 허풍 가능. RAM 안 먹음 |
+| **RSS** | **Resident Set Size** | **실제 물리 RAM에 올라온** 양 | **죽고 사는 기준** |
+| **PSS** | Proportional Set Size | 공유 페이지를 **쓰는 프로세스 수로 나눈** 몫 | 진짜 자기 몫 |
+
+- **`top` 의 `VIRT`=VSZ, `RES`=RSS.** `smaps` 의 `Size` vs `Rss` 가 곧 NMT의 **reserved vs committed** — 같은 사실을 커널 쪽과 JVM 쪽에서 본 것.
+- **함정 1**: 공유 라이브러리 페이지가 **프로세스마다 통째로** RSS에 잡힘 → 전 프로세스 RSS 합 > 실제 RAM. 공정한 몫은 **PSS**.
+- **함정 2**: 스왑으로 밀려나면 **RSS 에서 빠진다** → RSS 감소가 개선이 아닐 수 있다. `Swap:` 을 같이 볼 것. (컨테이너/Fargate는 스왑 없음 → 완충 없이 즉사)
+
+#### 핵심 — `-Xmx` 는 RSS 의 한 조각만 막는다
+
+`-Xmx2g` 를 줬는데 `top` 에 3GB로 나온다. **정상이다.** 프로세스가 먹는 건 §9.5의 **모든 그룹**이기 때문:
 
 | RSS 구성 | `-Xmx` 가 막나 | `jmap` 에 보이나 |
 |---|---|---|
@@ -425,22 +442,24 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 | direct 버퍼 · GC 자체 자료구조 | X | X |
 | `[heap]`(JNI malloc) · 매핑된 `.so` | X | X |
 
-**첫 행만 O이고 나머지는 전부 X** — 여기서 실전 함정 둘이 나온다:
+**첫 행만 O, 나머지는 전부 X** — 여기서 실전 함정 둘이 나온다:
 
 - **"`jmap -histo` 는 깨끗한데 프로세스가 죽는다"** — 범인이 힙 바깥(주로 **스레드 스택**). 힙 도구는 힙만 본다 → **NMT** 로 봐야 보인다. **레이어 4a에서 스레드 수백 개 띄우면 바로 만난다.**
-- **컨테이너에서 `-Xmx` 를 리밋 가까이 주면 안 된다** — cgroup은 **RSS 전체**로 판단하므로 힙 OOM(JVM)보다 OOM Killer(커널)가 먼저 이긴다(§5). 힙 바깥 몫을 남겨야 한다.
+- **컨테이너에서 `-Xmx` 를 리밋 가까이 주면 안 된다** — 커널/cgroup 은 **프로세스 전체**로 판단하므로 힙 OOM(JVM)보다 OOM Killer(커널)가 먼저 이긴다(§5). 힙 바깥 몫을 남겨야 한다.
+  - 정확히는 **OOM Killer 의 `oom_score` 는 RSS 기반**이지만, **cgroup 한도(`memory.max`)는 RSS 가 아니라 anon + 페이지 캐시 등을 합쳐 청구**한다. 그래서 파일 I/O 가 많으면(레이어 2 WAL) `memory.current` 가 부풀어 보인다 → `memory.stat` 의 `anon`(≈RSS) 과 `file`(캐시)을 분리해서 볼 것.
 
 #### 그래서 도구가 좌우로 갈린다
 
 | 알고 싶은 것 | 아는 쪽 | 도구 |
 |---|---|---|
 | VMA 목록·권한·익명/라벨 분리 | **커널만** | `cat /proc/<pid>/maps`, `pmap -x` |
-| 물리 실사용(RSS)·스왑 | **커널만** | `smaps`, `top`, cgroup |
+| 물리 실사용(RSS)·스왑 | **커널만** | `smaps`(`smaps_rollup`), `top`, cgroup |
 | reserved vs committed, **영역별 JVM 의미 라벨** | **양쪽** | `jcmd <pid> VM.native_memory` (NMT) |
 | 힙 속 객체 수·클래스별 점유 | **JVM만** | `jmap -histo`, 힙덤프 |
 | 콜스택(프레임) | **양쪽**(같은 바이트) | `jstack`, `javap -v` |
 
-**NMT가 경계에 걸친 유일한 번역기** — 커널이 준 익명 영역을 JVM 의미(Java Heap/Thread/Code/Class)로 쪼개 보여준다. Windows는 VMMap.
+- **NMT가 경계에 걸친 유일한 번역기** — 커널이 준 익명 영역을 JVM 의미(Java Heap/Thread/Code/Class)로 쪼개 준다. `-XX:NativeMemoryTracking=summary` 로 **켜고 시작해야** 잡힌다. Windows는 VMMap.
+- **RSS 는 "크다"까지만 알려주고 "왜 큰지"는 NMT 가 답한다.** 실전 관측 절차는 [`PLAN.md`](PLAN.md) 레이어 5-C.
 
 ---
 
