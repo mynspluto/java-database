@@ -37,7 +37,7 @@ java  -cp out Main             # ② JVM 이 .class 를 로드해서 실행     
 
 ---
 
-## 핵심 개념 3가지 (딥다이브)
+## 핵심 개념 4가지 (딥다이브)
 
 ### 1. 바이트코드 = 플랫폼 독립
 `.class` 는 특정 CPU/OS 용 기계어가 아니라 **JVM 이 해석하는 바이트코드**. 그래서 같은 `.class` 가 Windows·Linux·Mac 어디서든 돎("write once, run anywhere"). JVM 이 실행 중 자주 쓰는 코드를 **JIT** 로 기계어로 바꿔 최적화. → `java --version` 의 `mixed mode` 가 이 뜻(인터프리터 + JIT 혼용).
@@ -99,6 +99,29 @@ public class kvdb.Main
 #### 기본 패키지는 사실상 쓰지 말 것
 JLS 상 **기본 패키지의 클래스는 다른 패키지에서 import 할 방법이 없다.** 패키지를 하나라도 만들면 나머지도 전부 패키지에 들어가야 한다.
 
+### 4. import 는 "타입"을 가져온다 (패키지가 아님)
+
+```java
+import kvdb.store;           // 에러 — store 는 패키지지 클래스가 아님
+import kvdb.store.Storage;   // 단일 타입 import (권장)
+import kvdb.store.*;         // 온디맨드 import
+```
+
+**javac 은 마지막 마디를 항상 타입 이름으로 본다.** 그래서 `import kvdb.store;` 는 "`kvdb` 패키지의 `store` **클래스**"를 찾다 실패한다. 에러 메시지가 그대로 말해준다:
+
+```
+error: cannot find symbol
+import kvdb.store;
+           ^
+  symbol:   class store        <- 클래스를 찾았다는 뜻
+  location: package kvdb
+```
+
+- `*` 는 "패키지를 통째로 가져오기"가 아니라 **"그 패키지의 타입을 필요할 때 찾아라"**(on-demand). 하위 패키지는 포함 안 된다 — `java.util.*` 가 `java.util.concurrent` 를 포함하지 않음.
+- **단일 타입 import 가 관례**: 어느 클래스가 어디서 왔는지 코드에 드러나고, 이름 충돌을 피한다(`java.util.List` vs `java.awt.List`).
+- **import 는 런타임에 아무 일도 안 한다.** 컴파일러가 짧은 이름을 FQN 으로 풀어주는 **표기 편의**일 뿐 — 클래스파일에는 항상 FQN 이 박힌다(§3). "import 하면 로딩된다"는 오해.
+- **같은 패키지 안**이면 import 불필요. `java.lang.*` 은 자동.
+
 ---
 
 ## 자주 만나는 에러
@@ -112,6 +135,8 @@ JLS 상 **기본 패키지의 클래스는 다른 패키지에서 import 할 방
 | `NoClassDefFoundError` (실행 중) | 컴파일은 됐는데 런타임 classpath 에 해당 클래스 없음 |
 | `main method not found in class ...` | `public static void main(String[] args)` 시그니처 안 맞음 |
 | `UnsupportedClassVersionError` | **`javac` 와 `java` 버전이 다름** — 새 JDK 로 컴파일하고 옛 JVM 으로 실행 |
+| `cannot find symbol / symbol: class store` (import 줄) | **패키지를 import 함.** `import kvdb.store;` → `import kvdb.store.Storage;` (§4) |
+| `cannot find symbol: class Storage` (다른 파일의 클래스) | **그 파일을 javac 에 안 넘김.** 소스 전부 넘기거나 `-sourcepath src` (아래 멀티 파일) |
 
 ### JDK 가 여러 개 깔렸을 때 (PC 옮겨 다니면 자주 만남)
 
@@ -129,9 +154,27 @@ java src\Main.java
 ```
 > 편의용. 여러 파일·패키지 쓰면 결국 `javac`/`java` 2단계로 돌아옴. 학습 초반엔 **2단계를 눈으로 보는 게** classpath·바이트코드 개념 체득에 좋음.
 
-## 멀티 파일 (레이어 커지면)
-```
+## 멀티 파일 (파일이 둘 이상이 되는 순간부터)
+
+```powershell
 javac -d out (Get-ChildItem src -Recurse -Filter *.java).FullName   # PowerShell
-java -cp out Main
+java -cp out kvdb.Main
 ```
-파일 많아지고 이게 귀찮아지는 순간이 빌드툴(Gradle) 도입 시점.
+
+**파일 하나만 넘기면 다른 파일의 클래스를 못 찾는다.** `javac -d out src\kvdb\Main.java` 는 `Main` 이 쓰는 `kvdb.store.Storage` 를 어디서 찾을지 모른다 → `cannot find symbol`.
+
+세 가지 해법:
+
+| 방법 | 명령 | 평 |
+|---|---|---|
+| **소스 전부 넘기기** | 위 `Get-ChildItem` 형태 | **권장.** 파일이 늘어도 명령이 안 바뀜 |
+| 손으로 나열 | `javac -d out A.java B.java` | 동작하지만 확장 불가. **순서는 무관** — javac 이 전부 읽고 심볼을 한 번에 해석 |
+| `-sourcepath` | `javac -d out -sourcepath src src\kvdb\Main.java` | 의존 소스를 `src` 아래서 자동으로 찾아 같이 컴파일. 편하지만 **무엇이 컴파일됐는지 덜 명시적** |
+
+> 이게 귀찮아지는 순간이 빌드툴(Gradle) 도입 시점. JVM 옵션(`-Xss`·`-Xmx`·NMT)까지 붙기 시작하면 특히.
+
+**한 줄 스크립트로 줄이기** (`build.ps1`):
+```powershell
+javac -d out (Get-ChildItem src -Recurse -Filter *.java).FullName
+```
+→ `.\build.ps1` 후 `java -cp out kvdb.Main`.
