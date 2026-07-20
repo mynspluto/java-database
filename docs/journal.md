@@ -94,3 +94,4 @@ src/
 | 증상 | 원인 | 해결 |
 |---|---|---|
 | 터미널 `java -version` 이 17로 나옴 (21 설치했는데) | Machine PATH 에 17 경로가 하드코딩. Windows 는 **Machine PATH 를 User PATH 보다 먼저** 해석 | Temurin 21 설치 관리자가 Machine PATH·JAVA_HOME 을 21로 갱신. 진단은 `(Get-Command java).Source` ([toolchain](toolchain.md) §JDK 가 여러 개) |
+| `Main.java` 를 `src/kvdb/` 로 옮겼는데 `java -cp out kvdb.Main` 이 `ClassNotFoundException` | **`package` 선언을 안 씀.** 폴더를 옮겨도 클래스 이름은 안 바뀐다 — **javac 은 소스 폴더를 신경쓰지 않고 `package` 선언만 본다** | 선언 추가 → `out/kvdb/Main.class` 로 떨어짐. 원리는 [toolchain](toolchain.md) §3 "package 는 위치가 아니라 이름이다" |

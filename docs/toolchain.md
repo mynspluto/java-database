@@ -56,6 +56,49 @@ Error: Could not find or load main class Main   ← classpath 문제 1순위 증
 - 클래스파일: `out\store\KvStore.class`
 - 실행: `java -cp out store.KvStore`  ← **점 표기 정규 이름**(FQN), 폴더 구분자 아님
 
+#### package 는 "위치"가 아니라 "이름"이다
+
+**패키지는 클래스 이름의 앞부분**이고, 클래스파일 **안에** 박힌다. `javap -v` 로 확인:
+
+```
+public class kvdb.Main
+  this_class: #21     // kvdb/Main      ← 이름 자체에 패키지가 들어있음
+```
+
+폴더는 그 이름에서 **기계적으로 파생된 관습**일 뿐이다. 그래서 파일을 옮겨도 이름은 안 바뀐다.
+
+#### `-d` 와 `package` 는 각자 다른 걸 정한다
+
+> **출력 경로 = `<-d 값>` + `<패키지를 / 로 바꾼 것>` + `<클래스명>.class`**
+
+| | 정하는 것 | 빼면 |
+|---|---|---|
+| **`-d out`** | **뿌리(base)** 를 어디로 | 소스 옆에 `.class` 가 떨어짐 |
+| **`package kvdb;`** | 뿌리 **아래 상대경로** + **클래스 이름** | 뿌리 바로 아래로, 이름도 `Main` 이 됨 |
+
+`package kvdb;` 인 채로 `-d` 없이 컴파일하면 `src\kvdb\Main.class` 로 가지만 **이름은 여전히 `kvdb.Main`** 이고 `java -cp src kvdb.Main` 으로 실행된다. → **위치는 정체가 아니라 "찾는 방법"**.
+
+#### 인과 방향 — 무엇이 원인인가
+
+| 무엇을 바꾸면 | 무엇이 바뀌나 |
+|---|---|
+| **`package` 선언** | 이름 · 출력경로 · 검색경로 · 접근경계 **전부** |
+| 파일 위치(폴더 이동) | **아무것도 안 바뀜** |
+
+**흔한 실수**: 파일만 `src\kvdb\` 로 옮기고 `package` 선언을 안 씀 → `javac` 는 조용히 통과하고 `out\Main.class`(기본 패키지)를 만든다. 그다음 `java -cp out kvdb.Main` 하면 `ClassNotFoundException`. **javac 은 소스가 어느 폴더에 있는지 신경쓰지 않는다.**
+
+#### 바이트코드는 점이 아니라 `/` 를 쓴다
+
+클래스파일 내부 표기(internal form)는 `kvdb/Main`, `java/lang/Object` 처럼 **슬래시**다. 소스는 점, 클래스파일은 슬래시.
+→ `java` 런처가 `kvdb/Main` 도 받아주는 이유(내부에서 `/`→`.` 치환). **단 정식은 점 표기**이며, `import`·`Class.forName()` 은 치환이 없으므로 점을 습관으로 삼을 것.
+
+#### `-cp` 에는 항상 **뿌리**를 준다
+
+`out\kvdb\Main.class` 를 실행하려면 `-cp out` + `kvdb.Main`. `-cp out\kvdb` 를 주면 거기서 다시 `kvdb\Main.class` 를 찾으므로 실패.
+
+#### 기본 패키지는 사실상 쓰지 말 것
+JLS 상 **기본 패키지의 클래스는 다른 패키지에서 import 할 방법이 없다.** 패키지를 하나라도 만들면 나머지도 전부 패키지에 들어가야 한다.
+
 ---
 
 ## 자주 만나는 에러
@@ -63,6 +106,8 @@ Error: Could not find or load main class Main   ← classpath 문제 1순위 증
 | 에러 | 원인 |
 |---|---|
 | `Could not find or load main class Main` | classpath(`-cp`) 틀림, 또는 클래스 이름/패키지 불일치 |
+| `ClassNotFoundException: kvdb.Main` (폴더는 맞는데) | **파일만 옮기고 `package` 선언을 안 씀** → 기본 패키지로 컴파일됨(§3) |
+| `-cp` 를 `out\kvdb` 로 줬는데 못 찾음 | `-cp` 는 **뿌리**를 준다. `-cp out` + `kvdb.Main` (§3) |
 | `error: class Main is public, should be declared in a file named Main.java` | public 클래스명 ≠ 파일명 |
 | `NoClassDefFoundError` (실행 중) | 컴파일은 됐는데 런타임 classpath 에 해당 클래스 없음 |
 | `main method not found in class ...` | `public static void main(String[] args)` 시그니처 안 맞음 |
