@@ -1,5 +1,21 @@
 # javac / java — 컴파일·실행 명령 해부
 
+## 이 프로젝트의 환경 (확정)
+
+| 항목 | 값 |
+|---|---|
+| **JDK** | **Eclipse Temurin 21.0.11 LTS** (2026-07-20 확정) |
+| `JAVA_HOME` | `C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\` (Machine 범위) |
+| 빌드 | 빌드툴 없이 `javac`/`java` 직접 (커지면 재검토) |
+| OS | Windows 11 — `/proc` 계열 관측은 WSL2 필요([PLAN](PLAN.md) 레이어 5-C) |
+
+**왜 21인가**: 레이어 4a의 **Virtual Thread(Loom)** 가 21에서 정식이다. 17이면 "가상 스레드는 스택마저 힙에 둔다"([memory-model](memory-model.md) §8·§9.5)는 핵심 대조 실습을 못 한다. 배포판(Temurin/Corretto/MS)은 같은 OpenJDK·HotSpot 소스라 **학습 목적에선 차이 없음** — 17부터 쓰던 Temurin 으로 일관성만 맞춤.
+
+> 버전 확인: `java -version` · `javac -version` · `echo $env:JAVA_HOME`.
+> 여러 JDK 가 깔려 있으면 **PATH 순서**가 승자를 정한다(Windows 는 Machine PATH → User PATH 순). `(Get-Command java).Source` 로 실제 해석 경로를 볼 것.
+
+---
+
 프로젝트 내내 반복할 두 줄. **컴파일(`javac`)과 실행(`java`)은 별개 단계**다.
 
 ```

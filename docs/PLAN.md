@@ -7,9 +7,9 @@
 ---
 
 ## 레이어 0 — 프로젝트 셋업 (사용자 결정)
-- **빌드**: 단순 `javac`/`java` 로 시작 → 커지면 빌드툴 검토. (프레임워크 X, 표준 JDK 만)
-- **JDK 버전**: LTS(21) 권장 — virtual thread(Loom)·`java.lang.foreign`(Panama) 등 딥다이브 소재가 최신에 있음.
-- **패키지 구조 감**: `store`(엔진) / `wal`(영속화) / `net`(프로토콜·서버) / `concurrent`(락·풀) / `index` / `metrics`. 구조도 직접 정하는 게 학습.
+- **빌드**: 단순 `javac`/`java` 로 시작 → 커지면 빌드툴 검토. (프레임워크 X, 표준 JDK 만) ✅
+- **JDK 버전**: **Temurin 21.0.11 LTS 확정** ✅ — virtual thread(Loom)·`java.lang.foreign`(Panama) 등 딥다이브 소재가 21에 있음. 환경 상세는 [`toolchain.md`](toolchain.md) §환경.
+- **패키지 구조 감**: `store`(엔진) / `wal`(영속화) / `net`(프로토콜·서버) / `concurrent`(락·풀) / `index` / `metrics`. 구조도 직접 정하는 게 학습. ⬜ **레이어 1 시작 시 `store` 부터 정하면 됨**
 
 **알아야 할 것**: `javac`/`java` 동작·classpath → **[`docs/toolchain.md`](toolchain.md)**, `-Xms/-Xmx/-Xss` 등 JVM 실행 옵션 → **[`docs/jvm-options.md`](jvm-options.md)**, 스택·힙 원리(수명·프레임·SOE/OOM·할당 syscall·CPU/OS/JVM 층위) → **[`docs/memory-model.md`](memory-model.md)**, `public static void main` 진입점, JAR 패키징.
 
@@ -257,8 +257,8 @@
 
 | 레이어 | 상태 | 회고 |
 |---|---|---|
-| 0 셋업 | ⬜ | |
-| 1 인메모리 | ⬜ | |
+| 0 셋업 | ✅ | JDK 21(Temurin) 확정 · `javac`/`java` 직접 · 문서 4종(toolchain·jvm-options·memory-model·PLAN). 배포판보다 **버전**이 중요했다 — Loom 실습이 21에 묶여 있어서. |
+| 1 인메모리 | 🟦 | |
 | 2 영속화 | ⬜ | |
 | 3 네트워크 | ⬜ | |
 | 4a 스레드 | ⬜ | |
