@@ -3,15 +3,21 @@
 > 사용자가 **직접 손으로** 코드를 쓴다. 이 문서는 *무엇을·어떤 순서로·무엇을 알아야 하는지*의 지도일 뿐, 정답 코드는 없다.
 > 각 레이어는 **자체로 동작**한다(중간에 멈춰도 완결). 만들고 → 표준(Redis/RocksDB/`java.util`)과 비교 → "왜 저게 나은가" 분석 → 리팩터링.
 > 딥다이브 대상: **언어(Java) + JVM 메모리/GC/JMM + JDK 관측 도구 + OS/네트워크 경계**.
+>
+> **이 문서는 계획(미래형)만 담는다.** 실제로 만든 것·내린 결정·진행표·회고는 **[`journal.md`](journal.md)**.
 
 ---
 
 ## 레이어 0 — 프로젝트 셋업 (사용자 결정)
-- **빌드**: 단순 `javac`/`java` 로 시작 → 커지면 빌드툴 검토. (프레임워크 X, 표준 JDK 만) ✅
-- **JDK 버전**: **21 LTS 확정** ✅ — 레이어 4a의 **Virtual Thread(Loom)** 가 21 정식. 17이면 "가상 스레드는 스택마저 힙에 둔다"([memory-model](memory-model.md) §8·§9.5) 대조 실습을 못 한다. **배포판(Temurin/Corretto/MS)은 같은 OpenJDK·HotSpot 소스라 학습 목적엔 무관** — 버전만 중요. (설치 확인은 [README](../README.md))
-- **패키지 구조 감**: `store`(엔진) / `wal`(영속화) / `net`(프로토콜·서버) / `concurrent`(락·풀) / `index` / `metrics`. 구조도 직접 정하는 게 학습. ⬜ **레이어 1 시작 시 `store` 부터 정하면 됨**
+
+**정할 것**
+- **빌드**: 단순 `javac`/`java` 로 시작할지, 처음부터 빌드툴을 쓸지. (프레임워크 X, 표준 JDK 만)
+- **JDK 버전**: LTS 권장. **21 이상이어야** 레이어 4a 의 virtual thread(Loom) 실습이 가능.
+- **패키지 구조**: `store`(엔진) / `wal`(영속화) / `net`(프로토콜·서버) / `concurrent`(락·풀) / `index` / `metrics` 같은 계층 분리. 구조도 직접 정하는 게 학습.
 
 **알아야 할 것**: `javac`/`java` 동작·classpath → **[`docs/toolchain.md`](toolchain.md)**, `-Xms/-Xmx/-Xss` 등 JVM 실행 옵션 → **[`docs/jvm-options.md`](jvm-options.md)**, 스택·힙 원리(수명·프레임·SOE/OOM·할당 syscall·CPU/OS/JVM 층위) → **[`docs/memory-model.md`](memory-model.md)**, `public static void main` 진입점, JAR 패키징.
+
+> 실제로 무엇을 골랐는지는 [`journal.md`](journal.md) §2 (D1~D3).
 
 ---
 
@@ -19,19 +25,8 @@
 
 **만드는 것**: 문자열 key→value 저장. 명령 루프(REPL) 하나. 자료구조는 직접(HashMap 축소판) 짜보거나 `HashMap` 쓰고 나중에 비교.
 
-**패키지 구조**: `src/kvdb/` (Main) + `src/kvdb/store/` (엔진). 계층별 분리, 평평한 레이아웃. 빌드툴 도입 시 Maven 레이아웃 재검토. 구현이 둘 이상 생기면(직접 짠 해시맵 vs JDK, 4a vs 4b) 그때 하위 패키지로 쪼갠다.
-
-### 설계 결정 (레이어 1 — 단순하게 시작)
-
-| 결정 | 선택 | 근거 | 언제 다시 볼까 |
-|---|---|---|---|
-| **없는 키 `get`** | **`null` 반환** + **value 에 null 저장 금지**를 규약으로 | null 을 못 넣게 하면 "없음"과 "null 저장됨"의 모호함이 **애초에 생기지 않는다**(Redis 모델 — value 는 항상 바이트 문자열, 빈 문자열은 되지만 nil 은 안 됨). `Optional` 은 조회마다 객체 할당 → 힙 관측이 지저분해짐 | **레이어 4a** — `ConcurrentHashMap` 은 null 을 **금지**한다. 이유가 정확히 이 문제(동시 환경에선 `get`+`containsKey` 이중 조회가 race). 규약을 지켜뒀으면 전환이 무사 |
-| **key/value 공백** | **key 공백 금지 / value 는 줄 끝까지** | `split` 개수 제한만으로 `set k hello world` 가 됨. 따옴표·이스케이프는 지옥 | **레이어 3** — 아래 참조 |
-| **명령어 대소문자** | 무시 (`SET`=`set`) | Redis 동작과 동일 | — |
-
-> **일부러 단순하게 간다.** 레이어 3에서 "공백 있는 key 를 못 넣네 → 이스케이프를 넣을까 → **길이를 먼저 보내면 되잖아**" 로 이어지는 깨달음이 학습의 핵심. 지금 RESP 를 미리 구현하면 그 문제를 겪을 기회가 사라진다.
->
-> **Redis 도 같은 길을 걸었다**: inline command(공백 구분) → **RESP(길이 접두사)**. `*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$5\r\nhello\r\n` — "다음 5바이트가 값"이라 알려주니 구분자 탐색이 불필요하고 **binary-safe**(아무 바이트나 저장 가능, JPEG 도). 대가는 사람이 못 읽는 것 → 그래서 Redis 는 telnet 디버깅용으로 inline 도 **아직 지원**한다.
+**정할 것**: 없는 키 `get` 의 반환 규약(`null` / `Optional` / 센티널) · key·value 에 공백 허용 여부 · 명령어 대소문자 · 저장소를 인터페이스로 뺄지.
+→ 실제 선택과 근거는 [`journal.md`](journal.md) §2 (D4~D7).
 
 **딥다이브 포인트**
 - **해시맵 내부**: 버킷·체이닝·로드팩터·리사이징(amortized O(1)). 직접 짠 것 vs `java.util.HashMap`(트리화 threshold 8, `hash()` 스프레딩) 비교.
@@ -265,20 +260,11 @@
 
 ---
 
-## 진행 표기 & 회고
-- ⬜ todo / 🟦 진행 / ✅ 완료. 완료 시: **회고 1줄 + 표준(Redis/RocksDB/`java.util`) 비교 링크**.
-- 각 레이어 끝에 "만든 것 vs 표준: 무엇이 다르고 왜 저게 나은가" 1문단.
+## 진행 · 회고
 
-| 레이어 | 상태 | 회고 |
-|---|---|---|
-| 0 셋업 | ✅ | JDK 21 확정 · `javac`/`java` 직접 · 문서 4종(toolchain·jvm-options·memory-model·PLAN). **배포판보다 버전이 중요했다** — Loom 실습이 21에 묶여 있어서. |
-| 1 인메모리 | 🟦 | |
-| 2 영속화 | ⬜ | |
-| 3 네트워크 | ⬜ | |
-| 4a 스레드 | ⬜ | |
-| 4b 이벤트루프 | ⬜ | |
-| 5 모니터링 | ⬜ | |
-| 6 인덱스/복제 | ⬜ | |
+**진행표와 회고는 [`journal.md`](journal.md) §1 로 옮겼다.** 규칙만 여기 남긴다:
+- 레이어 완료 시 **회고 1줄 + "만든 것 vs 표준(Redis/RocksDB/`java.util`): 무엇이 다르고 왜 저게 나은가" 1문단**.
+- 설계 결정이 생기면 journal §2 에 **선택·근거·재검토 시점** 3종 세트로 기록.
 
 ---
 

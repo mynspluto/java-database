@@ -33,7 +33,8 @@
 
 ## 학습 로드맵 & 딥다이브
 
-상세 구현 계획 + JVM/JDK 딥다이브 포인트: **[`docs/PLAN.md`](docs/PLAN.md)**.
+상세 구현 계획 + JVM/JDK 딥다이브 포인트: **[`docs/PLAN.md`](docs/PLAN.md)** (계획·미래형).
+실제로 만든 것·내린 결정·진행표·회고: **[`docs/journal.md`](docs/journal.md)** (기록·과거형). **결정이 생기면 journal 에 남긴다.**
 
 레이어 요약 (각 단계 자체로 동작, 중간 멈춰도 완결):
 1. 단일스레드 인메모리 (get/set/del)
