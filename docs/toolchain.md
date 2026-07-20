@@ -1,22 +1,8 @@
 # javac / java — 컴파일·실행 명령 해부
 
-## 이 프로젝트의 환경 (확정)
-
-| 항목 | 값 |
-|---|---|
-| **JDK** | **Eclipse Temurin 21.0.11 LTS** (2026-07-20 확정) |
-| `JAVA_HOME` | `C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\` (Machine 범위) |
-| 빌드 | 빌드툴 없이 `javac`/`java` 직접 (커지면 재검토) |
-| OS | Windows 11 — `/proc` 계열 관측은 WSL2 필요([PLAN](PLAN.md) 레이어 5-C) |
-
-**왜 21인가**: 레이어 4a의 **Virtual Thread(Loom)** 가 21에서 정식이다. 17이면 "가상 스레드는 스택마저 힙에 둔다"([memory-model](memory-model.md) §8·§9.5)는 핵심 대조 실습을 못 한다. 배포판(Temurin/Corretto/MS)은 같은 OpenJDK·HotSpot 소스라 **학습 목적에선 차이 없음** — 17부터 쓰던 Temurin 으로 일관성만 맞춤.
-
-> 버전 확인: `java -version` · `javac -version` · `echo $env:JAVA_HOME`.
-> 여러 JDK 가 깔려 있으면 **PATH 순서**가 승자를 정한다(Windows 는 Machine PATH → User PATH 순). `(Get-Command java).Source` 로 실제 해석 경로를 볼 것.
-
----
-
 프로젝트 내내 반복할 두 줄. **컴파일(`javac`)과 실행(`java`)은 별개 단계**다.
+
+> 필요 버전과 빌드 방식은 [README](../README.md), 그 **선택 근거**는 [PLAN 레이어 0](PLAN.md) 참조.
 
 ```
 javac -d out src\Main.java     # ① 소스(.java) → 바이트코드(.class)  [컴파일타임]
@@ -80,6 +66,14 @@ Error: Could not find or load main class Main   ← classpath 문제 1순위 증
 | `error: class Main is public, should be declared in a file named Main.java` | public 클래스명 ≠ 파일명 |
 | `NoClassDefFoundError` (실행 중) | 컴파일은 됐는데 런타임 classpath 에 해당 클래스 없음 |
 | `main method not found in class ...` | `public static void main(String[] args)` 시그니처 안 맞음 |
+| `UnsupportedClassVersionError` | **`javac` 와 `java` 버전이 다름** — 새 JDK 로 컴파일하고 옛 JVM 으로 실행 |
+
+### JDK 가 여러 개 깔렸을 때 (PC 옮겨 다니면 자주 만남)
+
+- **`javac` 와 `java` 가 서로 다른 JDK 를 가리킬 수 있다** → 위 `UnsupportedClassVersionError` 의 정체. 둘 다 확인할 것: `java -version` · `javac -version`.
+- 승자는 **PATH 순서**가 정한다. Windows 는 **Machine PATH 를 먼저, User PATH 를 뒤에** 이어 붙이므로 User 쪽에 새 JDK 를 넣어도 Machine 쪽 옛 JDK 가 이긴다.
+- 실제 해석 경로 보기: `(Get-Command java).Source` (PowerShell) / `which -a java` (bash).
+- `JAVA_HOME` 은 **IDE·빌드툴이 보는 값**이고 터미널의 `java` 는 **PATH** 를 본다 → 둘이 어긋나면 "IDE 에선 되는데 터미널에선 안 됨"이 발생.
 
 ---
 
