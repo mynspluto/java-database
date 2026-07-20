@@ -11,11 +11,11 @@ public class Storage {
         this.map = new HashMap<>();
     }
 
-    public get(String key) {
-        return _hashmap.get(key);
+    public String get(String key) {
+        return map.get(key);
     }
 
-    public void set(String Key, String value) {
+    public void set(String key, String value) {
         Objects.requireNonNull(key, "key must not be null");
         Objects.requireNonNull(value, "value must not be null");
         map.put(key, value);
