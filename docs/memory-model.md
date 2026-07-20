@@ -226,8 +226,8 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 
 | 뜻 | 가리키는 것 | Java 힙이 이거냐? |
 |---|---|---|
-| **좁은 뜻** | `[heap]` = **brk로 늘리는 특정 영역**(C malloc용) | ❌ 아니다 |
-| **넓은 뜻** | "OS가 동적으로 내주는 메모리" 일반 | ✅ 맞다 (mmap 경로) |
+| **좁은 뜻** | `[heap]` = **brk로 늘리는 특정 영역**(C malloc용) | 아니다 |
+| **넓은 뜻** | "OS가 동적으로 내주는 메모리" 일반 | 맞다 (mmap 경로) |
 
 → "Java 힙 ≠ OS 힙"이라 할 땐 **좁은 뜻**([heap]/brk). 넓은 뜻으론 Java 힙도 OS가 준 동적 메모리(단 brk 아닌 mmap).
 
@@ -339,7 +339,7 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 | `r-xp` | `/lib/libc.so` | 공유 라이브러리 코드 | 파일이니까 앎 |
 | `rw-p` | **`[heap]`** | brk C힙 — JVM의 C++/JNI용, **작음** | **라벨** |
 | `rw-p` | **`[stack]`** | 메인 스레드 스택 | **라벨** |
-| `rw-p` | (이름없음) | **★ Java 힙** — 익명 private mmap | **모름** |
+| `rw-p` | (이름없음) | **Java 힙** — 익명 private mmap | **모름** |
 | `rw-p` | (이름없음) | 스레드 스택 × N | **모름** |
 | `rw-p` | (이름없음) | 메타스페이스·코드캐시·direct 버퍼… | **모름** |
 
@@ -369,7 +369,7 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 
 | 커널이 보는 것 | JVM이 부르는 이름 | 상한 |
 |---|---|---|
-| `rw-p` (이름없음) | **★ Java 힙** (GC 관리) | `-Xmx` |
+| `rw-p` (이름없음) | **Java 힙** (GC 관리) | `-Xmx` |
 | `rw-p` (이름없음) | 메타스페이스 | `-XX:MaxMetaspaceSize` |
 | `rw-p` (이름없음) | 코드캐시 (JIT 기계어) | `-XX:ReservedCodeCacheSize` |
 | `rw-p` (이름없음) **또는 `[heap]`** | direct ByteBuffer (아래 주의) | `-XX:MaxDirectMemorySize` |

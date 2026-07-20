@@ -31,7 +31,7 @@ java  -cp out Main             # ② JVM 이 .class 를 로드해서 실행     
 |---|---|
 | `java` | **JVM 을 띄운다**. 지정한 클래스의 `main` 메서드를 찾아 실행 |
 | `-cp out` | **c**lass**p**ath — "클래스(.class)를 `out\` 폴더에서 찾아라". JVM 이 클래스를 어디서 로드할지 알려주는 검색 경로 |
-| `Main` | 실행할 **클래스 이름**. ⚠️ 파일명 아님 — `Main.class` X, `out\Main` X, `.java` X. 그냥 클래스 이름 `Main` |
+| `Main` | 실행할 **클래스 이름**. 파일명 아님 — `Main.class` X, `out\Main` X, `.java` X. 그냥 클래스 이름 `Main` |
 
 **흐름**: `java` → JVM 시작 → classpath(`out`)에서 `Main.class` 찾음 → `public static void main(String[])` 호출.
 
