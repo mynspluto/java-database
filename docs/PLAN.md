@@ -192,11 +192,16 @@
 |---|---|---|---|---|---|
 | 1 | **RSS ≠ 힙**: `-Xmx512m` 로 띄우고 **레이어 4a 스레드 200개** 연결 | QPS 정상 | `jmap -histo` **깨끗** / NMT **Thread 급증** | `smaps` **RSS 폭증** | **힙 도구로 안 잡히는 죽음**(memory-model §9.6) |
 | 2 | **reserve ≠ 커밋**: `-Xmx4g` 로 띄우고 시작 직후 관찰 → `-XX:+AlwaysPreTouch` 로 재실행 비교 | — | NMT reserved 4G vs committed 소량 | `maps` Size 4G vs `smaps` Rss 소량 | **가상 예약과 물리 배정은 다르다** |
-| 3 | **OOM Killer**: 컨테이너 메모리 리밋 < `-Xmx` 로 띄워 죽여보기 | 로그 뚝 끊김 | **아무 에러 없음**(JVM 증발) | `dmesg` 에 `Killed process` | **커널이 죽이면 Java 에러가 없다**(§5) |
+| 3 | **OOM Killer**: `docker run -m 512m` + `-Xmx512m` 으로 띄워 죽여보기 | 로그 뚝 끊김 | **아무 에러 없음**(JVM 증발) | `dmesg` 에 `Killed process`, **exit 137** | **커널이 죽이면 Java 에러가 없다**(§5) |
 | 4 | **누수 잡기**: 레이어 1~2에 캐시 누수 심고 방치 | 히트율·p99 악화 | `jstat` GC 빈발 / `jmap -histo` 범인 클래스 | RSS 우상향 | 힙 누수는 **B가 정답** |
 | 5 | **direct 버퍼 누수**: 레이어 2/4b NIO 버퍼 안 풀기 | — | `jmap` 깨끗 / **NMT Internal 증가** | RSS 우상향 | off-heap은 **NMT만 본다** |
 
 **진단 순서 습관화**: A(증상 감지) → B(`jmap` 힙 확인 → 깨끗하면 **NMT**) → C(교차 확인·부검). **1·5번이 "B의 힙 도구만 믿으면 실패"하는 대표 사례.**
+
+**전제 도구**: 1·2·4·5번은 JDK만 있으면 된다(윈도우 가능, `/proc` 볼 땐 WSL2). **3번은 Docker 필요** — `-m` 으로 메모리 리밋을 걸어야 재현된다.
+
+> **3번은 Fargate 리허설이다.** 컨테이너 리밋 초과로 죽는 경로가 배포 환경과 **동일**하고, 흔적 찾는 곳만 `dmesg` → `stoppedReason` 으로 바뀔 뿐(아래 배포 절). 로컬에서 한 번 겪어두면 `-Xmx` 를 태스크 메모리와 같게 주는 실수를 안 한다.
+> 확인할 것: `docker inspect <id> --format '{{.State.ExitCode}} {{.State.OOMKilled}}'` → **`137 true`**.
 
 ### 배포하면 달라지는 것 (EC2 vs Fargate)
 
