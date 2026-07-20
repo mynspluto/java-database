@@ -104,15 +104,137 @@
 
 **만드는 것**: 앱 메트릭 수집(QPS·히트율·명령별 지연·p99·슬로우로그) + `INFO`/`STATS` 명령으로 노출.
 
+### 관측 3층 — 층마다 보이는 것이 다르다
+
+원리는 [`memory-model.md`](memory-model.md) **§9.5(좌우 대조)·§9.6(RSS ≠ 힙)**. 핵심: **한 프로세스의 같은 메모리를 세 층이 각각 다르게 본다. 한 층만 보면 반드시 놓친다.**
+
+| 층 | 무엇을 보나 | 누가 만드나 | 대표 도구 | 성격 |
+|---|---|---|---|---|
+| **A. 앱** | QPS·히트율·p99·슬로우로그 | **내가 직접 구현** | `INFO`/`STATS` 명령 | **상시 수집** |
+| **B. JVM** | 힙 속 객체·GC·스레드·JVM 영역별 사용량 | JDK 공짜 | `jstat`·`jstack`·`jmap`·`jcmd`(NMT)·JFR | 필요 시 붙임 |
+| **C. OS** | VMA 배치·RSS·스왑·프로세스 생사 | 커널 공짜 | `maps`·`smaps`·`pmap`·`top`·`dmesg` | **부검·교차확인** |
+
+- **A는 "내 DB가 잘 도나"(제품 지표), C는 "이 프로세스가 왜 죽었나"(부검).** 목적이 다르니 둘 다 필요하다.
+- **B의 NMT가 유일하게 경계에 걸친 번역기** — 커널이 준 익명 영역을 JVM 의미(Java Heap/Thread/Code/Class)로 쪼개 준다. **B와 C를 잇는 다리.**
+
+### 5-A. 앱 메트릭 — 직접 구현
+
 **딥다이브 포인트**
 - **지연 측정**: `System.nanoTime()`(monotonic) vs `currentTimeMillis`. p99 계산(히스토그램·HdrHistogram 개념, 직접 버킷).
 - **메트릭 동시성**: 카운터를 `LongAdder` vs `AtomicLong`(경합 시 차이).
 - **슬로우로그**: 임계 초과 명령 링버퍼 저장.
-- **(A) 앱 메트릭** = 직접(CloudWatch 커스텀 개념) / **(B) JVM 관측** = JDK 공짜.
+- 개념 연결: CloudWatch 커스텀 메트릭 = 이걸 밖으로 내보낸 것.
 
-**JVM 관측 도구 정복** (실행 옵션은 [jvm-options.md](jvm-options.md) §진단·관측 옵션)
-- `jps` PID · `jstat -gc` GC/힙 추이 · `jstack` 스레드/데드락 · `jmap -histo`/`-dump` 힙·누수(이펙티브자바 item7) · `jcmd`(만능: NMT·JFR 제어) · `jconsole`/VisualVM GUI · **JFR**(Flight Recorder — 저오버헤드 프로파일: 할당·락·IO) → JMC 로 분석.
-- 실습: 레이어 2~4 에서 **내가 심은 누수/데드락/할당폭증**을 이 도구로 진단 = 실전 디버깅.
+### 5-B. JVM 레벨 관측 (실행 옵션은 [jvm-options.md](jvm-options.md) §진단·관측 옵션)
+
+| 도구 | 보는 것 | 이 프로젝트에서 |
+|---|---|---|
+| `jps` | PID | 시작점 |
+| `jstat -gc <pid> 1000` | GC 횟수·힙 세대별 추이 | 레이어 1 대량 put 시 힙 증가 |
+| `jstack` | 스레드 덤프·**데드락 자동 감지** | **레이어 4a** 락 버그 |
+| `jmap -histo` / `-dump` | 클래스별 객체 수 / 힙덤프 | 캐시 누수(이펙티브자바 item7) |
+| **`jcmd <pid> VM.native_memory summary`** | **NMT — 영역별 reserved/committed** | **힙 밖 누수**(스레드·direct) |
+| JFR + JMC | 저오버헤드 프로파일(할당·락·IO) | 4a vs 4b 비교 |
+
+- **NMT는 `-XX:NativeMemoryTracking=summary` 로 켜고 시작해야** 잡힌다(기본 꺼짐).
+- **reserved vs committed** = 예약한 가상 주소 vs 실제 커밋. `mmap` 은 주소만 예약하고 물리 페이지는 touch 때 붙기 때문(memory-model §6).
+
+### 5-C. OS 레벨 관측
+
+| 도구 | 보는 것 | 주의 |
+|---|---|---|
+| `cat /proc/<pid>/maps` | **VMA 배치도** — 권한·이름·익명 여부 | **사용량 아님.** 크기도 주소 빼서 계산 |
+| `cat /proc/<pid>/smaps` | maps + 영역별 `Rss`·`Swap`·`Pss` | **진짜 사용량은 여기** |
+| `pmap -x <pid>` | 위 둘을 표로 정리 | 빠르게 볼 때 |
+| `top` / `/proc/<pid>/status` | 프로세스 총계(`VmRSS`, `VmSize`) | 총계만 |
+| `dmesg` / `journalctl` | **OOM Killer 흔적** | `Killed process` — 스택트레이스 없이 죽었을 때 |
+| `/proc/meminfo`·`free -h` | **시스템 전체** | maps는 프로세스 하나짜리 |
+
+- **maps = 도면 / smaps = 사용량.** 이 구분을 놓치면 `-Xmx16g` 짜리 VSZ를 보고 "16GB 쓴다"고 오진한다. (약어 VSZ/RSS/PSS 정의는 memory-model §9.4)
+
+**RSS 관측 — 실전 4단계** (묻는 게 달라지면 명령도 달라진다)
+
+| 묻는 것 | 명령 | 읽는 법 |
+|---|---|---|
+| 1. **지금 얼마 쓰나** | `grep VmRSS /proc/<pid>/status`<br>또는 `ps -o pid,rss,vsz -p <pid>` | `top` 의 `RES` 열과 같은 값 |
+| 2. **뭐가 먹나** | `pmap -x <pid> \| sort -k3 -n \| tail -20` | 3번째 열이 RSS. **큰 덩어리 1개=힙 / `-Xss` 크기 조각 수백 개=스레드 스택** |
+| 3. **왜 먹나** | **`jcmd <pid> VM.native_memory summary`** | Java Heap 이 작은데 RSS 크면 → **Thread·Code·Internal** 항목 확인 |
+| 4. **누수인가** | RSS 를 주기적으로 파일에 로깅 → 기울기 | **절대값 아니라 기울기.** 부하 멈춰도 안 내려오면 누수 |
+
+- 총계만 정확히: **`cat /proc/<pid>/smaps_rollup`** (`Rss`·`Pss`·`Swap` 합계 한 번에, 커널 4.14+).
+- **3번이 핵심**: RSS 만 보면 "크다"까지고 **왜 큰지는 NMT 가 답한다.** NMT 안 켜두면 관측이 반쪽 → `-XX:NativeMemoryTracking=summary` 를 기동 옵션에 상시 포함.
+
+**윈도우 대응** (`/proc` 없음 — maps·smaps·pmap 은 리눅스 전용)
+
+| Windows | Linux 대응 | 비고 |
+|---|---|---|
+| `Get-Process -Id <pid> \| Select WorkingSet64` | **RSS** | 작업관리자 → 세부정보 → 열 추가 **"작업 집합"** |
+| Private Bytes | ≈ 사설 커밋(PSS 개념에 가까움) | 기본 "메모리" 열은 Private Working Set |
+| **VMMap** (Sysinternals) | `pmap -x` | 영역별 분해 |
+| 성능 모니터(PerfMon) | RSS 시계열 로깅 | 4번 추이용 |
+
+→ **1·2·4번은 WSL2 권장, 3번(`jcmd`·NMT)은 윈도우에서 그대로 된다.** A·B층 전체가 윈도우에서 완주 가능하고 **C층만 WSL이 필요**.
+
+**컨테이너/AWS에서 볼 때**
+
+| 명령 | 주의 |
+|---|---|
+| `cat /sys/fs/cgroup/memory.current` | **순수 RSS 아님** — 페이지 캐시 포함. 레이어 2 WAL 쓰기 시작하면 부풀어 보인다 |
+| `cat /sys/fs/cgroup/memory.stat` | `anon`(≈RSS) 과 `file`(페이지 캐시)을 **분리해서** 볼 것 |
+| `docker stats` | MEM USAGE / LIMIT |
+| CloudWatch Container Insights | Fargate 에서 셸 없이 볼 때 |
+
+### 관통 실습 — 같은 현상을 3층에서 보기
+
+이 레이어의 진짜 목표. **각 실습은 "한 층만 보면 왜 오진하는가"를 체험하는 것.**
+
+| # | 실습 | A(앱) | B(JVM) | C(OS) | 배우는 것 |
+|---|---|---|---|---|---|
+| 1 | **RSS ≠ 힙**: `-Xmx512m` 로 띄우고 **레이어 4a 스레드 200개** 연결 | QPS 정상 | `jmap -histo` **깨끗** / NMT **Thread 급증** | `smaps` **RSS 폭증** | **힙 도구로 안 잡히는 죽음**(memory-model §9.6) |
+| 2 | **reserve ≠ 커밋**: `-Xmx4g` 로 띄우고 시작 직후 관찰 → `-XX:+AlwaysPreTouch` 로 재실행 비교 | — | NMT reserved 4G vs committed 소량 | `maps` Size 4G vs `smaps` Rss 소량 | **가상 예약과 물리 배정은 다르다** |
+| 3 | **OOM Killer**: 컨테이너 메모리 리밋 < `-Xmx` 로 띄워 죽여보기 | 로그 뚝 끊김 | **아무 에러 없음**(JVM 증발) | `dmesg` 에 `Killed process` | **커널이 죽이면 Java 에러가 없다**(§5) |
+| 4 | **누수 잡기**: 레이어 1~2에 캐시 누수 심고 방치 | 히트율·p99 악화 | `jstat` GC 빈발 / `jmap -histo` 범인 클래스 | RSS 우상향 | 힙 누수는 **B가 정답** |
+| 5 | **direct 버퍼 누수**: 레이어 2/4b NIO 버퍼 안 풀기 | — | `jmap` 깨끗 / **NMT Internal 증가** | RSS 우상향 | off-heap은 **NMT만 본다** |
+
+**진단 순서 습관화**: A(증상 감지) → B(`jmap` 힙 확인 → 깨끗하면 **NMT**) → C(교차 확인·부검). **1·5번이 "B의 힙 도구만 믿으면 실패"하는 대표 사례.**
+
+### 배포하면 달라지는 것 (EC2 vs Fargate)
+
+로컬은 3층이 다 열려 있지만 **배포 환경은 층을 뺏어간다.** 그래서 A층(앱이 스스로 말하는 지표)을 직접 만드는 값어치가 여기서 드러난다.
+
+| 층 | EC2 | Fargate |
+|---|---|---|
+| **A. 앱** | 그대로 (CloudWatch 커스텀 메트릭으로 전송) | **그대로** — 앱이 내보내니 환경 무관 |
+| **B. JVM** | SSH 후 `jcmd` 자유 | **ECS Exec 를 미리 켜야만** 접근 |
+| **C. OS** | 전부 됨 | **프로세스 단위는 살고, 시스템 전체는 거짓말. `dmesg` 불가** |
+
+**Fargate 함정 4가지**
+
+| 함정 | 내용 | 대응 |
+|---|---|---|
+| **`/proc/meminfo` 가 호스트 값** | 512MB 태스크인데 `free -h` 는 호스트 수십 GB. `meminfo`·`cpuinfo` 는 네임스페이스가 안 걸림 | **`/sys/fs/cgroup/memory.max`·`memory.current` 가 진실**. `maps`·`smaps` 는 프로세스 단위라 **정상** |
+| **`dmesg` 못 봄** | OOM Killer 흔적을 호스트 커널 로그에서 못 읽음 | `describe-tasks` 의 **`stoppedReason`** + 컨테이너 **`exitCode 137`**(=128+9 SIGKILL) + Container Insights |
+| **사후에 못 붙음** | `enableExecuteCommand` 는 **태스크 기동 시** 결정. 장애 후 켜려면 재배포 → **문제 상태 소멸** | **처음부터 켜둔다** + SSM 권한. **JRE 아닌 JDK 이미지**여야 `jcmd`/`jmap` 존재 |
+| **파일 휘발** | 힙덤프·JFR 파일이 태스크와 함께 사라짐. 덤프 크기가 임시 디스크 압박 | `-XX:HeapDumpPath` 를 **EFS 마운트**로, 또는 S3 업로드 |
+
+**EC2 주의**: CloudWatch 기본 메트릭에 **메모리가 없다**(CPU·디스크·네트워크만). 하이퍼바이저는 게스트 내부를 못 보므로 **CloudWatch Agent 설치 필요** — "메모리 관측은 공짜가 아니다"의 실물.
+
+**공통 필수 — JVM 컨테이너 인식** (§9.6 "RSS ≠ Java 힙"이 그대로 배포 규칙이 된다)
+
+| `-Xmx` 설정 | 결과 |
+|---|---|
+| 안 줌 (JDK 10+, 컨테이너) | cgroup 한도의 **25%** 만 힙 (`MaxRAMPercentage` 기본값) — 너무 작음 |
+| **태스크 메모리와 같게** | **위험** — 힙 밖(스레드·메타·코드캐시·direct)이 초과 → **exit 137** |
+| **`-XX:MaxRAMPercentage=70`** | **권장** — 태스크 크기를 바꿔도 따라감 |
+
+- **Fargate엔 스왑이 없다** → 한도 초과 시 완충 없이 즉사.
+- **실습 3번을 로컬에서 해두면 이 실수를 안 한다** — 증상(에러 없이 증발)이 동일하고 흔적 찾는 곳만 `dmesg` → `stoppedReason` 으로 바뀔 뿐.
+
+### 완료 기준
+- `INFO`/`STATS` 로 QPS·히트율·p99·슬로우로그가 나온다.
+- 위 실습 5개 중 **최소 1·3번**을 직접 재현하고 각 층 출력을 캡처해 회고에 남긴다.
+- "같은 메모리를 세 층이 어떻게 다르게 부르는가"를 memory-model §9.5 표로 설명할 수 있다.
+- (배포한다면) `-Xmx` 를 태스크 메모리와 같게 주면 왜 죽는지 설명할 수 있다.
 
 ---
 
