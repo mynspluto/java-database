@@ -29,7 +29,7 @@
 → 실제 선택과 근거는 [`journal.md`](journal.md) §2 (D4~D7).
 
 **딥다이브 포인트**
-- **해시맵 내부**: 버킷·체이닝·로드팩터·리사이징(amortized O(1)). 직접 짠 것 vs `java.util.HashMap`(트리화 threshold 8, `hash()` 스프레딩) 비교.
+- **해시맵 내부**: 버킷·체이닝·로드팩터·리사이징(amortized O(1)), 트리화 threshold 8, `hash()` 스프레딩. **직접 구현은 범위 밖(D14)** — `java.util.HashMap` **소스를 읽어** 근거를 확인하는 방식으로. 자료구조 자체 구현은 레이어 6.
 - **`equals`/`hashCode` 계약** — 안 지키면 조회 실패. 불변 key 의 중요성.
 - **힙에 뭐가 쌓이나**: 모든 `String`·`Node` 객체가 힙. `new` 마다 할당. (메모리 맵: [jvm-options.md](jvm-options.md) §메모리 맵)
 - **String 내부**: `char[]`→(Java 9+) `byte[]` + coder, String pool, `intern()`. key 를 pool 에 넣을지 trade-off.
