@@ -40,10 +40,11 @@
 
 | 옵션 | 영역 | 이 프로젝트에서 |
 |---|---|---|
-| `-XX:MaxMetaspaceSize=<size>` | **메타스페이스**(클래스 메타데이터, 네이티브 메모리) | 리플렉션·클래스 많이 만들면 관찰. 보통 기본값 OK |
+| `-XX:MaxMetaspaceSize=<size>` | **메타스페이스**(클래스 메타데이터**+메서드 바이트코드**, 네이티브 메모리) | 리플렉션·클래스 많이 만들면 관찰. 보통 기본값 OK |
 | `-XX:MaxDirectMemorySize=<size>` | **다이렉트 메모리**(off-heap, `ByteBuffer.allocateDirect`) | 레이어 2 WAL 버퍼 / 4b NIO 버퍼. **안 풀면 누수** → 여기서 상한 걸고 재현 |
 | `-XX:ReservedCodeCacheSize=<size>` | **Code Cache**(JIT 이 만든 기계어) | JIT 딥다이브 시. `mixed mode` 의 기계어가 여기 캐싱 |
 
+> **바이트코드 vs 기계어 — 사는 영역이 다르다**: `.class` 의 메서드 바이트코드는 클래스 로딩 시 **메타스페이스**에 올라간다(항상, 해석 실행용 — HotSpot `InstanceKlass`→`ConstMethod` 안). JIT이 hot 메서드를 네이티브로 컴파일한 **기계어**만 별도로 **코드캐시**에 캐싱. 원본 바이트코드는 메타스페이스에 그대로 남음. → "new 객체는 힙, 클래스 정의·바이트코드는 메타스페이스, JIT 기계어는 코드캐시" 세 갈래.
 > 메모리 영역 5종(힙/스택/메타스페이스/다이렉트/코드캐시)의 전체 지도는 이 문서 하단 "메모리 맵" 참고.
 > **스택 vs 힙의 원리**(왜 나눴나·프레임·SOE/OOM/OOM Killer·할당 시 syscall·CPU/OS/JVM 층위)는 → [`memory-model.md`](memory-model.md).
 

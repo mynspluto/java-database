@@ -385,12 +385,16 @@ int[] a = new int[100]; // a(참조)     → 스택 슬롯 / 배열 → 힙
 
 > **주의 — direct buffer 는 예외적으로 `malloc` 경로다.** `ByteBuffer.allocateDirect()` → `Unsafe.allocateMemory` → **`os::malloc`**. 즉 §9.2의 분기를 그대로 타서 **작으면 `[heap]`(brk), 128KB↑면 익명 mmap** 에 놓인다. "JVM은 malloc을 우회한다"(§9.2)는 **Java 힙에만** 해당하는 말이다.
 >
-> **이름이 비슷한 둘을 구별할 것** (레이어 2에서 WAL 을 어느 쪽으로 쓸지 고를 때 직결):
+> **ByteBuffer 3종 구별** (레이어 2에서 WAL 을, 4b에서 소켓 버퍼를 어느 쪽으로 쓸지 직결):
 >
-> | | 뒷배 | maps 에서 | 반납 |
+> | 생성 | 데이터 위치 | 뒷배 | 반납 |
 > |---|---|---|---|
-> | **`DirectByteBuffer`** (`allocateDirect`) | **없음**(익명, malloc) | `rw-p` | `Cleaner` — 안 풀면 누수 |
-> | **`MappedByteBuffer`** (`FileChannel.map`) | **파일** | `rw-s` / `r--s` | unmap. 파일 쓰기 = 메모리 쓰기 → `fsync` 타이밍 문제 |
+> | `allocate()` (**힙 버퍼**) | **Java 힙** (`byte[]`) | — (GC 영역) | GC 자동 (쌈) |
+> | `allocateDirect()` (**`DirectByteBuffer`**) | 다이렉트(off-heap) | **없음**(익명, malloc) | `Cleaner` — 안 풀면 누수 |
+> | `FileChannel.map()` (**`MappedByteBuffer`**) | 파일 매핑(off-heap) | **파일** (`rw-s`/`r--s`) | unmap. 파일 쓰기=메모리 쓰기 → `fsync` 타이밍 문제 |
+>
+> **왜 힙 버퍼(`allocate`) 두고 direct 를 쓰나 — 커널 I/O 복사 1회 제거.** 소켓/파일 I/O 시 커널은 **고정 물리주소**가 필요한데, 힙 `byte[]` 는 GC가 compaction 때 옮길 수 있어 커널이 직접 못 쓴다. 그래서 힙 버퍼로 `channel.read()` 하면 JVM이 **임시 direct 버퍼로 받아 힙으로 복사**(복사 1회 추가). direct 버퍼는 GC가 안 옮기는 네이티브 고정주소라 커널이 바로 읽고 씀 = zero-copy. **대가**: 생성이 malloc이라 비싸고(힙 배열보다 느림) `Cleaner` 해제라 누수 위험 → **오래 쓰는 I/O 버퍼는 direct + 풀 재사용**(Netty 방식), **단명·비I/O 는 힙 `allocate`**. 레이어 4b에서 둘 다 벤치해 복사 1회 차이를 숫자로.
+> — 정리하면 힙 버퍼는 "데이터가 GC 관리 영역", direct 는 "GC 손 밖 네이티브". **이 관리여부 하나에서 이득(안 옮김→zero-copy)과 위험(직접 해제 못 함→누수)이 동시에 파생**된다. 단 두 경우 다 `ByteBuffer` **껍데기 객체 자체는 힙**에 있고, direct 는 그 밑 데이터 블록만 네이티브(껍데기 GC 시 Cleaner가 블록 해제).
 
 #### 스택 vs Java 힙 — 누가 돌봐주나
 
